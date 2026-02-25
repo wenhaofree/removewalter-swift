@@ -35,6 +35,7 @@ private struct ExtractView: View {
     @Environment(\.modelContext) private var modelContext
 
     @State private var linkText = ""
+    @State private var hasContentAuthorizationConsent = false
     @State private var completedStepCount = 0
     @State private var statusText = "等待开始"
     @State private var isExtracting = false
@@ -56,6 +57,8 @@ private struct ExtractView: View {
 
     private let steps = ["解析链接", "提取视频", "去除水印", "合成处理"]
     private let parseVideoEndpoint = "https://api-doubaonomark.wenhaofree.com/parse-video"
+    // Replace with your real Notion privacy policy URL before submitting.
+    private let privacyPolicyURLString = "https://www.notion.so/your-team/privacy-policy"
 
     private var progress: Double {
         guard !steps.isEmpty else { return 0 }
@@ -67,6 +70,7 @@ private struct ExtractView: View {
             VStack(alignment: .leading, spacing: 20) {
                 headerSection
                 linkInputSection
+                complianceSection
                 extractButton
 
                 if let extractionErrorText {
@@ -177,7 +181,35 @@ private struct ExtractView: View {
                 .background(isExtracting ? Color.brandBlue.opacity(0.75) : Color.brandBlue)
                 .clipShape(Capsule())
         }
-        .disabled(isExtracting || linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .disabled(
+            isExtracting ||
+            linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !hasContentAuthorizationConsent
+        )
+    }
+
+    private var complianceSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(isOn: $hasContentAuthorizationConsent) {
+                Text("我确认已获得该视频的使用与下载授权")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Color.primaryText)
+            }
+            .toggleStyle(.switch)
+
+            if let privacyPolicyURL = URL(string: privacyPolicyURLString) {
+                Link("查看隐私政策（Notion）", destination: privacyPolicyURL)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color.brandBlue)
+            }
+
+            Text("仅支持处理你拥有合法授权的内容。")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(Color.secondaryText)
+        }
+        .padding(12)
+        .background(Color.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 
     private var progressCard: some View {
@@ -303,6 +335,12 @@ private struct ExtractView: View {
         let trimmedLink = linkText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedLink.isEmpty else {
             statusText = "请输入有效链接"
+            return
+        }
+        guard hasContentAuthorizationConsent else {
+            let message = "请先确认你已获得视频授权"
+            statusText = message
+            extractionErrorText = message
             return
         }
 
