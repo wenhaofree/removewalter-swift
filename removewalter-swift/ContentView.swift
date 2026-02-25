@@ -118,7 +118,7 @@ private struct ExtractView: View {
     }
 
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("链接提取")
                 .font(.system(size: 44, weight: .bold))
                 .foregroundStyle(Color.primaryText)
@@ -126,66 +126,107 @@ private struct ExtractView: View {
             Text("自动获取无水印视频并生成预览")
                 .font(.system(size: 20, weight: .regular))
                 .foregroundStyle(Color.secondaryText)
+
+            Text("支持粘贴分享链接，一键提取后可直接下载、保存和分享。")
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(Color.secondaryText.opacity(0.9))
         }
     }
 
     private var linkInputSection: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "link")
-                .font(.system(size: 18, weight: .semibold))
+        VStack(alignment: .leading, spacing: 12) {
+            Text("视频链接")
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color.secondaryText)
 
-            TextField("请输入视频链接", text: $linkText)
-                .font(.system(size: 16))
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .focused($isLinkFieldFocused)
+            HStack(spacing: 10) {
+                Image(systemName: "link")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color.secondaryText)
 
-            if !linkText.isEmpty {
-                Button(action: clearLinkText) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(Color.secondaryText)
-                        .frame(width: 44, height: 44)
+                TextField("请输入视频链接", text: $linkText)
+                    .font(.system(size: 16))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($isLinkFieldFocused)
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 48)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
+            )
+
+            HStack(spacing: 10) {
+                Button(action: pasteFromClipboard) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.on.clipboard")
+                        Text("粘贴")
+                            .fontWeight(.semibold)
+                    }
+                    .font(.system(size: 15))
+                    .foregroundStyle(Color.brandBlue)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(Color.actionTint)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
+                .accessibilityLabel("粘贴链接")
+
+                Button(action: clearLinkText) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "xmark.circle")
+                        Text("清空")
+                            .fontWeight(.semibold)
+                    }
+                    .font(.system(size: 15))
+                    .foregroundStyle(linkText.isEmpty ? Color.secondaryText : Color.primaryText)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                    )
+                }
+                .disabled(linkText.isEmpty)
                 .accessibilityLabel("清空链接")
             }
-
-            Button(action: pasteFromClipboard) {
-                HStack(spacing: 6) {
-                    Image(systemName: "doc.on.clipboard")
-                    Text("粘贴")
-                        .fontWeight(.semibold)
-                }
-                .font(.system(size: 16))
-                .foregroundStyle(Color.brandBlue)
-                .frame(minWidth: 86, minHeight: 44)
-                .background(Color.actionTint)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
-            .accessibilityLabel("粘贴链接")
         }
-        .padding(12)
+        .padding(14)
         .background(Color.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 
     private var extractButton: some View {
         Button(action: startExtraction) {
-            Text(isExtracting ? "正在处理..." : "提取无水印视频")
-                .font(.system(size: 34, weight: .bold))
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-                .foregroundStyle(Color.white)
-                .frame(maxWidth: .infinity, minHeight: 60)
-                .background(isExtracting ? Color.brandBlue.opacity(0.75) : Color.brandBlue)
-                .clipShape(Capsule())
+            HStack(spacing: 8) {
+                if isExtracting {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                } else {
+                    Image(systemName: "sparkles.rectangle.stack")
+                        .font(.system(size: 18, weight: .semibold))
+                }
+
+                Text(isExtracting ? "正在处理..." : "提取无水印视频")
+                    .font(.system(size: 30, weight: .bold))
+                    .minimumScaleFactor(0.7)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(Color.white)
+            .frame(maxWidth: .infinity, minHeight: 60)
+            .background(isExtracting ? Color.brandBlue.opacity(0.75) : Color.brandBlue)
+            .clipShape(Capsule())
         }
         .disabled(
             isExtracting ||
             linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
             !hasContentAuthorizationConsent
         )
+        .shadow(color: Color.brandBlue.opacity(0.24), radius: 10, y: 4)
     }
 
     private var complianceSection: some View {
