@@ -19,7 +19,7 @@
 
 ## 运行环境
 - Xcode 26+
-- iOS 26.2+（当前工程部署目标）
+- iOS 17.0+（当前工程部署目标）
 - 支持 iPhone + iPad（`TARGETED_DEVICE_FAMILY = 1,2`）
 
 ## 接口说明
@@ -32,8 +32,8 @@
   - 若接口不可用，提取流程将失败并提示错误。
 
 ## 合规与隐私
-- 已增加“内容授权确认”开关，未勾选不可提取。
-- App 内已提供隐私政策入口（当前为占位 Notion 链接，需要替换）。
+- 已增加“双重合规确认”开关（授权确认 + 合法用途承诺），未勾选不可提取。
+- App 内隐私政策入口：`https://www.notion.so/wenhaofree/31228842492280ff9798de7fb8e99593?source=copy_link`
 - 已加入 `PrivacyInfo.xcprivacy`。
 
 ## 项目结构
@@ -49,15 +49,14 @@ xcodebuild -project removewalter-swift.xcodeproj -scheme removewalter-swift -des
 ```
 
 ## TODO（发布前必须）
-1. 将 `ContentView.swift` 中隐私政策占位链接替换为真实 Notion URL。
-2. 在 App Store Connect 填写 Privacy Policy URL（使用同一 Notion 链接）。
-3. 在 App Store Connect 完成 App Privacy 问卷（含第三方解析服务数据流）。
-4. 在 App Store Connect 完成 Support URL 与审核备注（可参考 `AppStoreReleaseChecklist.md`）。
-5. 准备内容版权/授权证明材料，避免审核因 5.2.2/5.2.3 被拒。
+1. 在 App Store Connect 填写 Privacy Policy URL（使用同一 Notion 链接）。
+2. 在 App Store Connect 完成 App Privacy 问卷（含第三方解析服务数据流）。
+3. 在 App Store Connect 完成 Support URL 与审核备注（可参考 `AppStoreReleaseChecklist.md` 与 `AppStoreReviewNotesTemplate.md`）。
+4. 准备内容版权/授权证明材料，避免审核因 5.2.2/5.2.3 被拒。
 
 ## TODO（上线建议）
-1. 补充单元测试与 UI 冒烟测试（提取、预览、下载、保存、分享、历史）。
-2. 增加解析服务超时重试与降级策略。
+1. 补充更多单元测试与 UI 冒烟测试（提取、预览、下载、保存、分享、历史）。
+2. 增加解析服务降级策略（当前已支持请求重试与退避）。
 3. 增加埋点与崩溃监控（例如提取成功率、下载失败率）。
 4. 优化 iPad 横屏布局适配与交互细节。
 5. 增加本地化资源（中文/英文）与应用商店文案一致性校验。

@@ -23,12 +23,28 @@ final class removewalter_swiftUITests: XCTestCase {
     }
 
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
+    func testExtractButtonRequiresConsentAndValidLink() throws {
         let app = XCUIApplication()
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        let extractButton = app.buttons["extract_button"]
+        XCTAssertTrue(extractButton.waitForExistence(timeout: 5))
+        XCTAssertFalse(extractButton.isEnabled)
+
+        let linkInput = app.textFields["link_input"]
+        XCTAssertTrue(linkInput.waitForExistence(timeout: 3))
+        linkInput.tap()
+        linkInput.typeText("https://example.com/video")
+
+        let consentToggle = app.switches["consent_toggle"]
+        XCTAssertTrue(consentToggle.waitForExistence(timeout: 3))
+        consentToggle.tap()
+
+        let usageRulesToggle = app.switches["usage_rules_toggle"]
+        XCTAssertTrue(usageRulesToggle.waitForExistence(timeout: 3))
+        usageRulesToggle.tap()
+
+        XCTAssertTrue(extractButton.isEnabled)
     }
 
     @MainActor

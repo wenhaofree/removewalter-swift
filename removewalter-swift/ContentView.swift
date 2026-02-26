@@ -36,6 +36,7 @@ private struct ExtractView: View {
 
     @State private var linkText = ""
     @State private var hasContentAuthorizationConsent = false
+    @State private var hasAcknowledgedUsageRules = false
     @State private var completedStepCount = 0
     @State private var statusText = "等待开始"
     @State private var isExtracting = false
@@ -57,8 +58,7 @@ private struct ExtractView: View {
 
     private let steps = ["解析链接", "提取视频", "去除水印", "合成处理"]
     private let parseVideoEndpoint = "https://api-doubaonomark.wenhaofree.com/parse-video"
-    // Replace with your real Notion privacy policy URL before submitting.
-    private let privacyPolicyURLString = "https://www.notion.so/your-team/privacy-policy"
+    private let privacyPolicyURLString = "https://www.notion.so/wenhaofree/31228842492280ff9798de7fb8e99593?source=copy_link"
 
     private var progress: Double {
         guard !steps.isEmpty else { return 0 }
@@ -149,6 +149,7 @@ private struct ExtractView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .focused($isLinkFieldFocused)
+                    .accessibilityIdentifier("link_input")
             }
             .padding(.horizontal, 12)
             .frame(minHeight: 48)
@@ -221,10 +222,12 @@ private struct ExtractView: View {
             .background(isExtracting ? Color.brandBlue.opacity(0.75) : Color.brandBlue)
             .clipShape(Capsule())
         }
+        .accessibilityIdentifier("extract_button")
         .disabled(
             isExtracting ||
             linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            !hasContentAuthorizationConsent
+            !hasContentAuthorizationConsent ||
+            !hasAcknowledgedUsageRules
         )
         .shadow(color: Color.brandBlue.opacity(0.24), radius: 10, y: 4)
     }
@@ -237,6 +240,15 @@ private struct ExtractView: View {
                     .foregroundStyle(Color.primaryText)
             }
             .toggleStyle(.switch)
+            .accessibilityIdentifier("consent_toggle")
+
+            Toggle(isOn: $hasAcknowledgedUsageRules) {
+                Text("我承诺不用于去除他人内容水印、侵权下载或传播")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Color.primaryText)
+            }
+            .toggleStyle(.switch)
+            .accessibilityIdentifier("usage_rules_toggle")
 
             if let privacyPolicyURL = URL(string: privacyPolicyURLString) {
                 Link("查看隐私政策（Notion）", destination: privacyPolicyURL)
@@ -244,7 +256,7 @@ private struct ExtractView: View {
                     .foregroundStyle(Color.brandBlue)
             }
 
-            Text("仅支持处理你拥有合法授权的内容。")
+            Text("仅支持处理你拥有合法授权的内容。若违规使用，开发者将配合平台处理。")
                 .font(.system(size: 13, weight: .regular))
                 .foregroundStyle(Color.secondaryText)
         }
@@ -380,6 +392,12 @@ private struct ExtractView: View {
         }
         guard hasContentAuthorizationConsent else {
             let message = "请先确认你已获得视频授权"
+            statusText = message
+            extractionErrorText = message
+            return
+        }
+        guard hasAcknowledgedUsageRules else {
+            let message = "请先确认你不会将功能用于侵权用途"
             statusText = message
             extractionErrorText = message
             return
@@ -555,13 +573,10 @@ private struct ExtractView: View {
         }
 
         statusText = "正在下载视频..."
-        let (temporaryURL, response) = try await URLSession.shared.download(from: extractedVideoURL)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw ParseVideoError.invalidServerResponse
-        }
-        guard (200 ... 299).contains(httpResponse.statusCode) else {
-            throw ParseVideoError.serverStatus(httpResponse.statusCode)
-        }
+        let (temporaryURL, httpResponse) = try await downloadVideoWithRetry(
+            from: extractedVideoURL,
+            maxAttempts: NetworkRetryPolicy.maxDownloadAttempts
+        )
 
         let destinationURL = try makeLocalVideoDestinationURL(
             sourceURL: extractedVideoURL,
@@ -595,39 +610,13 @@ private struct ExtractView: View {
         }
 
         let timestamp = Int(Date().timeIntervalSince1970)
-        let fileExtension = normalizedVideoFileExtension(
+        let fileExtension = VideoFileNaming.normalizedVideoFileExtension(
             sourceURL: sourceURL,
             suggestedFilename: suggestedFilename,
             mimeType: mimeType
         )
         let normalizedName = "nowatermark_\(timestamp).\(fileExtension)"
         return documentDirectory.appendingPathComponent(normalizedName)
-    }
-
-    private func normalizedVideoFileExtension(sourceURL: URL, suggestedFilename: String?, mimeType: String?) -> String {
-        let sourceExtension = sourceURL.pathExtension.lowercased()
-        if !sourceExtension.isEmpty {
-            return sourceExtension
-        }
-
-        if let suggestedFilename {
-            let suggestedExtension = URL(fileURLWithPath: suggestedFilename).pathExtension.lowercased()
-            if !suggestedExtension.isEmpty {
-                return suggestedExtension
-            }
-        }
-
-        if let mimeType {
-            let normalizedMime = mimeType.lowercased()
-            if normalizedMime.contains("mp4") {
-                return "mp4"
-            }
-            if normalizedMime.contains("quicktime") || normalizedMime.contains("mov") {
-                return "mov"
-            }
-        }
-
-        return "mp4"
     }
 
     private func buildTitle(from videoURL: URL, createdAt: Date) -> String {
@@ -794,34 +783,54 @@ private struct ExtractView: View {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(ParseVideoRequest(url: sourceURL, returnRaw: false))
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw ParseVideoError.invalidServerResponse
+        var lastError: Error?
+        for attempt in 1 ... NetworkRetryPolicy.maxParseAttempts {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw ParseVideoError.invalidServerResponse
+                }
+
+                guard (200 ... 299).contains(httpResponse.statusCode) else {
+                    if NetworkRetryPolicy.shouldRetry(statusCode: httpResponse.statusCode),
+                       attempt < NetworkRetryPolicy.maxParseAttempts {
+                        try await Task.sleep(nanoseconds: NetworkRetryPolicy.backoffNanoseconds(forAttempt: attempt))
+                        continue
+                    }
+
+                    if let decodedError = try? JSONDecoder().decode(ParseVideoResponse.self, from: data),
+                       let message = decodedError.message,
+                       !message.isEmpty {
+                        throw ParseVideoError.serverMessage(message)
+                    }
+                    throw ParseVideoError.serverStatus(httpResponse.statusCode)
+                }
+
+                do {
+                    let decoded = try JSONDecoder().decode(ParseVideoResponse.self, from: data)
+                    guard decoded.success else {
+                        throw ParseVideoError.serverMessage(decoded.message ?? "接口返回失败")
+                    }
+                    guard let video = decoded.video else {
+                        throw ParseVideoError.emptyVideoURL
+                    }
+                    return video
+                } catch let parseError as ParseVideoError {
+                    throw parseError
+                } catch {
+                    throw ParseVideoError.invalidPayload
+                }
+            } catch {
+                lastError = error
+                guard attempt < NetworkRetryPolicy.maxParseAttempts,
+                      NetworkRetryPolicy.shouldRetry(error: error) else {
+                    throw error
+                }
+                try await Task.sleep(nanoseconds: NetworkRetryPolicy.backoffNanoseconds(forAttempt: attempt))
+            }
         }
 
-        guard (200 ... 299).contains(httpResponse.statusCode) else {
-            if let decodedError = try? JSONDecoder().decode(ParseVideoResponse.self, from: data),
-               let message = decodedError.message,
-               !message.isEmpty {
-                throw ParseVideoError.serverMessage(message)
-            }
-            throw ParseVideoError.serverStatus(httpResponse.statusCode)
-        }
-
-        do {
-            let decoded = try JSONDecoder().decode(ParseVideoResponse.self, from: data)
-            guard decoded.success else {
-                throw ParseVideoError.serverMessage(decoded.message ?? "接口返回失败")
-            }
-            guard let video = decoded.video else {
-                throw ParseVideoError.emptyVideoURL
-            }
-            return video
-        } catch let parseError as ParseVideoError {
-            throw parseError
-        } catch {
-            throw ParseVideoError.invalidPayload
-        }
+        throw lastError ?? ParseVideoError.invalidServerResponse
     }
 
     private func validatedVideoURL(from rawValue: String) throws -> URL {
@@ -940,6 +949,39 @@ private enum ParseVideoError: LocalizedError {
             return "保存到相册失败，请重试"
         }
     }
+}
+
+private func downloadVideoWithRetry(from remoteURL: URL, maxAttempts: Int) async throws -> (URL, HTTPURLResponse) {
+    var lastError: Error?
+
+    for attempt in 1 ... maxAttempts {
+        do {
+            let (temporaryURL, response) = try await URLSession.shared.download(from: remoteURL)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw ParseVideoError.invalidServerResponse
+            }
+
+            guard (200 ... 299).contains(httpResponse.statusCode) else {
+                if NetworkRetryPolicy.shouldRetry(statusCode: httpResponse.statusCode),
+                   attempt < maxAttempts {
+                    try? FileManager.default.removeItem(at: temporaryURL)
+                    try await Task.sleep(nanoseconds: NetworkRetryPolicy.backoffNanoseconds(forAttempt: attempt))
+                    continue
+                }
+                throw ParseVideoError.serverStatus(httpResponse.statusCode)
+            }
+            return (temporaryURL, httpResponse)
+        } catch {
+            lastError = error
+            guard attempt < maxAttempts,
+                  NetworkRetryPolicy.shouldRetry(error: error) else {
+                throw error
+            }
+            try await Task.sleep(nanoseconds: NetworkRetryPolicy.backoffNanoseconds(forAttempt: attempt))
+        }
+    }
+
+    throw lastError ?? ParseVideoError.invalidServerResponse
 }
 
 private enum PreviewAction: String, CaseIterable {
@@ -1328,13 +1370,10 @@ private struct HistoryCard: View {
             throw ParseVideoError.noVideoAvailable
         }
 
-        let (temporaryURL, response) = try await URLSession.shared.download(from: remoteURL)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw ParseVideoError.invalidServerResponse
-        }
-        guard (200 ... 299).contains(httpResponse.statusCode) else {
-            throw ParseVideoError.serverStatus(httpResponse.statusCode)
-        }
+        let (temporaryURL, httpResponse) = try await downloadVideoWithRetry(
+            from: remoteURL,
+            maxAttempts: NetworkRetryPolicy.maxDownloadAttempts
+        )
 
         let destinationURL = try makeHistoryLocalVideoDestinationURL(
             sourceURL: remoteURL,
@@ -1370,38 +1409,12 @@ private struct HistoryCard: View {
         }
 
         let timestamp = Int(Date().timeIntervalSince1970)
-        let fileExtension = normalizedVideoFileExtension(
+        let fileExtension = VideoFileNaming.normalizedVideoFileExtension(
             sourceURL: sourceURL,
             suggestedFilename: suggestedFilename,
             mimeType: mimeType
         )
         return documentDirectory.appendingPathComponent("history_\(record.id.uuidString)_\(timestamp).\(fileExtension)")
-    }
-
-    private func normalizedVideoFileExtension(sourceURL: URL, suggestedFilename: String?, mimeType: String?) -> String {
-        let sourceExtension = sourceURL.pathExtension.lowercased()
-        if !sourceExtension.isEmpty {
-            return sourceExtension
-        }
-
-        if let suggestedFilename {
-            let suggestedExtension = URL(fileURLWithPath: suggestedFilename).pathExtension.lowercased()
-            if !suggestedExtension.isEmpty {
-                return suggestedExtension
-            }
-        }
-
-        if let mimeType {
-            let normalizedMime = mimeType.lowercased()
-            if normalizedMime.contains("mp4") {
-                return "mp4"
-            }
-            if normalizedMime.contains("quicktime") || normalizedMime.contains("mov") {
-                return "mov"
-            }
-        }
-
-        return "mp4"
     }
 
     private func localFileSize(at fileURL: URL) -> Int64? {
